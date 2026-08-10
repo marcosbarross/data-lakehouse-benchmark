@@ -1,0 +1,7 @@
+---
+minio_image: "minio/minio:latest"
+minio_user: "admin"
+minio_password: "password123"
+minio_storage_size: "10Gi"
+minio_api_nodeport: 30900
+minio_console_nodeport: 30901

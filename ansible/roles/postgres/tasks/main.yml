@@ -1,0 +1,22 @@
+---
+- name: Criar diretório de manifestos no Master
+  file:
+    path: /var/lib/rancher/k3s/server/manifests/custom
+    state: directory
+    mode: '0755'
+  when: "'master' in group_names"
+
+- name: Copiar manifesto do Postgres para o Master
+  template:
+    src: postgres.yml.j2
+    dest: /tmp/postgres-k3s.yaml
+  when: "'master' in group_names"
+
+- name: Aplicar manifesto do Postgres no Cluster
+  shell: kubectl apply -f /tmp/postgres-k3s.yaml
+  when: "'master' in group_names"
+
+- name: Aguardar Postgres estar pronto
+  shell: kubectl rollout status deployment/postgres-catalog -n lakehouse --timeout=120s
+  when: "'master' in group_names"
+  ignore_errors: yes

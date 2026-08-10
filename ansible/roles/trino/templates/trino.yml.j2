@@ -1,0 +1,191 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: trino-config
+  namespace: lakehouse
+data:
+  # --- Configuração Geral ---
+  node.properties: |
+    node.environment=production
+    node.data-dir=/data/trino
+
+  jvm.config: |
+    -server
+    -Xmx{{ jvm_max_heap }}
+    -XX:InitialRAMPercentage=80
+    -XX:MaxRAMPercentage=80
+    -XX:G1HeapRegionSize=32M
+    -XX:+ExplicitGCInvokesConcurrent
+    -XX:+HeapDumpOnOutOfMemoryError
+    -XX:OnOutOfMemoryError=kill -9 %p
+
+  # --- Catálogo Iceberg ---
+  iceberg.properties: |
+    connector.name=iceberg
+    iceberg.catalog.type=jdbc
+    iceberg.jdbc-catalog.driver-class=org.postgresql.Driver
+    iceberg.jdbc-catalog.connection-url={{ postgres_url }}
+    iceberg.jdbc-catalog.connection-user={{ postgres_user }}
+    iceberg.jdbc-catalog.connection-password={{ postgres_password }}
+    iceberg.jdbc-catalog.catalog-name=iceberg_catalog
+    iceberg.jdbc-catalog.default-warehouse-dir=s3://warehouse/
+
+    fs.s3.enabled=true
+    s3.endpoint={{ minio_endpoint }}
+    s3.region=us-east-1
+    s3.path-style-access=true
+    s3.aws-access-key={{ minio_access_key }}
+    s3.aws-secret-key={{ minio_secret_key }}
+
+  # --- Catálogo Delta Lake ---
+  delta_lake.properties: |
+    connector.name=delta_lake
+    hive.metastore.uri={{ hive_metastore_uri }}
+    fs.s3.enabled=true
+    s3.endpoint={{ minio_endpoint }}
+    s3.region=us-east-1
+    s3.path-style-access=true
+    s3.aws-access-key={{ minio_access_key }}
+    s3.aws-secret-key={{ minio_secret_key }}
+
+  # --- Configurações Específicas ---
+  config-coordinator.properties: |
+    coordinator=true
+    node-scheduler.include-coordinator=true
+    http-server.http.port=8080
+    query.max-memory=1GB
+    query.max-memory-per-node=512MB
+    discovery.uri=http://localhost:8080
+
+  config-worker.properties: |
+    coordinator=false
+    http-server.http.port=8080
+    query.max-memory=1GB
+    query.max-memory-per-node=512MB
+    discovery.uri=http://trino-service.lakehouse.svc.cluster.local:8080
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: trino-service
+  namespace: lakehouse
+spec:
+  type: NodePort
+  ports:
+    - port: 8080
+      targetPort: 8080
+      nodePort: {{ trino_node_port }}
+      name: http
+  selector:
+    app: trino-coordinator
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trino-coordinator
+  namespace: lakehouse
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: trino-coordinator
+  template:
+    metadata:
+      labels:
+        app: trino-coordinator
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: k3s-worker1
+      containers:
+        - name: trino-coordinator
+          image: {{ trino_image }}
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: config-volume
+              mountPath: /etc/trino/config.properties
+              subPath: config.properties
+            - name: config-volume
+              mountPath: /etc/trino/jvm.config
+              subPath: jvm.config
+            - name: config-volume
+              mountPath: /etc/trino/node.properties
+              subPath: node.properties
+            - name: config-volume
+              mountPath: /etc/trino/catalog/iceberg.properties
+              subPath: iceberg.properties
+            - name: config-volume
+              mountPath: /etc/trino/catalog/delta_lake.properties
+              subPath: delta_lake.properties
+      volumes:
+        - name: config-volume
+          configMap:
+            name: trino-config
+            items:
+              - key: node.properties
+                path: node.properties
+              - key: jvm.config
+                path: jvm.config
+              - key: iceberg.properties
+                path: iceberg.properties
+              - key: delta_lake.properties
+                path: delta_lake.properties
+              - key: config-coordinator.properties
+                path: config.properties
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trino-worker
+  namespace: lakehouse
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: trino-worker
+  template:
+    metadata:
+      labels:
+        app: trino-worker
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: k3s-worker2
+      containers:
+        - name: trino-worker
+          image: {{ trino_image }}
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: config-volume
+              mountPath: /etc/trino/config.properties
+              subPath: config.properties
+            - name: config-volume
+              mountPath: /etc/trino/jvm.config
+              subPath: jvm.config
+            - name: config-volume
+              mountPath: /etc/trino/node.properties
+              subPath: node.properties
+            - name: config-volume
+              mountPath: /etc/trino/catalog/iceberg.properties
+              subPath: iceberg.properties
+            - name: config-volume
+              mountPath: /etc/trino/catalog/delta_lake.properties
+              subPath: delta_lake.properties
+      volumes:
+        - name: config-volume
+          configMap:
+            name: trino-config
+            items:
+              - key: node.properties
+                path: node.properties
+              - key: jvm.config
+                path: jvm.config
+              - key: iceberg.properties
+                path: iceberg.properties
+              - key: delta_lake.properties
+                path: delta_lake.properties
+              - key: config-worker.properties
+                path: config.properties

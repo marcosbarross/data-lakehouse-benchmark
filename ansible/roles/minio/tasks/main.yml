@@ -1,0 +1,40 @@
+---
+- name: Copiar manifesto do MinIO para o Master
+  template:
+    src: minio.yml.j2
+    dest: /tmp/minio-k8s.yml
+  when: "'master' in group_names"
+
+- name: Aplicar manifesto do MinIO
+  shell: kubectl apply -f /tmp/minio-k8s.yml
+  when: "'master' in group_names"
+
+- name: Aguardar MinIO iniciar
+  shell: kubectl rollout status deployment/minio -n lakehouse --timeout=120s
+  when: "'master' in group_names"
+
+- name: Criar Job para configurar o Bucket inicial
+  shell: |
+    cat <<EOF | kubectl apply -f -
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: minio-setup-bucket
+      namespace: lakehouse
+    spec:
+      ttlSecondsAfterFinished: 100
+      template:
+        spec:
+          containers:
+          - name: mc
+            image: minio/mc
+            command: ["/bin/sh", "-c"]
+            args:
+            - >
+              mc alias set myminio http://minio-service:9000 {{ minio_user }} {{ minio_password }};
+              mc mb myminio/warehouse --ignore-existing;
+              mc anonymous set public myminio/warehouse;
+          restartPolicy: Never
+    EOF
+  when: "'master' in group_names"
+  ignore_errors: yes 

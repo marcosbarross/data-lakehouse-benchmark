@@ -1,0 +1,7 @@
+---
+postgres_image: "postgres:16-alpine"
+postgres_user: "admin"
+postgres_password: "password123"
+postgres_db: "iceberg_catalog"
+postgres_node_port: 30432
+storage_size: "5Gi"

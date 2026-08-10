@@ -1,0 +1,82 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init-script
+  namespace: lakehouse
+data:
+  init_iceberg.sql: |
+    -- Garante que estamos no banco certo (redundância de segurança)
+    \connect iceberg_catalog;
+
+    CREATE TABLE IF NOT EXISTS iceberg_tables (
+        catalog_name VARCHAR(255) NOT NULL,
+        table_namespace VARCHAR(255) NOT NULL,
+        table_name VARCHAR(255) NOT NULL,
+        metadata_location VARCHAR(1000),
+        previous_metadata_location VARCHAR(1000),
+        iceberg_type VARCHAR(5),
+        PRIMARY KEY (catalog_name, table_namespace, table_name)
+    );
+
+    CREATE TABLE IF NOT EXISTS iceberg_namespace_properties (
+        catalog_name VARCHAR(255) NOT NULL,
+        namespace VARCHAR(255) NOT NULL,
+        property_key VARCHAR(255) NOT NULL,
+        property_value VARCHAR(1000),
+        PRIMARY KEY (catalog_name, namespace, property_key)
+    );
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-catalog
+  namespace: lakehouse
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres-catalog
+  template:
+    metadata:
+      labels:
+        app: postgres-catalog
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: "admin"
+            - name: POSTGRES_PASSWORD
+              value: "password123"
+            # MUDANÇA 1: O banco padrão agora se chama iceberg_catalog
+            - name: POSTGRES_DB
+              value: "iceberg_catalog"
+          volumeMounts:
+            # MUDANÇA 2: Monta o script de inicialização
+            - name: init-script
+              mountPath: /docker-entrypoint-initdb.d/init_iceberg.sql
+              subPath: init_iceberg.sql
+      volumes:
+        - name: init-script
+          configMap:
+            name: postgres-init-script
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-catalog
+  namespace: lakehouse
+spec:
+  type: NodePort
+  ports:
+    - port: 5432
+      targetPort: 5432
+      nodePort: 30432
+      name: postgres
+  selector:
+    app: postgres-catalog

@@ -1,0 +1,14 @@
+---
+- name: Copiar manifesto do Trino para o Master
+  template:
+    src: trino.yml.j2
+    dest: /tmp/trino-k8s.yml
+  when: "'master' in group_names"
+
+- name: Aplicar manifesto do Trino
+  shell: kubectl apply -f /tmp/trino-k8s.yml
+  when: "'master' in group_names"
+
+- name: Aguardar Coordinator iniciar
+  shell: kubectl rollout status deployment/trino-coordinator -n lakehouse --timeout=300s
+  when: "'master' in group_names"

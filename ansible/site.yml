@@ -1,0 +1,16 @@
+---
+- name: Provisionamento do Cluster Data Lakehouse
+  hosts: all
+  become: yes
+  gather_facts: yes
+
+  pre_tasks:
+    - name: Verificar conectividade
+      ping:
+
+  roles:
+    - role: k3s_install
+    - role: postgres
+    - role: minio
+    - role: hive_metastore
+    - role: trino

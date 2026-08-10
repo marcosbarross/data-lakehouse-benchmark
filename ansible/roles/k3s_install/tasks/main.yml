@@ -1,0 +1,107 @@
+---
+- name: Garantir que dependências do sistema estão instaladas
+  apt:
+    name: ["curl", "nfs-common"]
+    update_cache: yes
+    state: present
+
+- name: Baixar script de instalação oficial do K3s
+  get_url:
+    url: https://get.k3s.io
+    dest: /tmp/k3s_install.sh
+    mode: '0755'
+
+# --- Instalação do MASTER ---
+- name: Instalar K3s Server (Master)
+  shell: >
+    INSTALL_K3S_VERSION={{ k3s_version }}
+    sh /tmp/k3s_install.sh -
+  environment:
+    INSTALL_K3S_EXEC: "server {{ extra_server_args }}"
+  when: "'master' in group_names"
+  args:
+    creates: /usr/local/bin/k3s
+
+- name: Aguardar o K3s Server iniciar
+  wait_for:
+    port: 6443
+    delay: 5
+    timeout: 300
+  when: "'master' in group_names"
+
+# --- Gestão do Token (Para conectar os workers) ---
+- name: Capturar o Node Token do Master
+  slurp:
+    src: /var/lib/rancher/k3s/server/node-token
+  register: k3s_token_base64
+  delegate_to: "{{ groups['master'][0] }}"
+  run_once: true
+
+- name: Definir variável do token globalmente
+  set_fact:
+    k3s_token: "{{ k3s_token_base64['content'] | b64decode | trim }}"
+  run_once: true
+
+# --- Instalação dos WORKERS ---
+- name: Instalar K3s Agent (Worker)
+  shell: >
+    INSTALL_K3S_VERSION={{ k3s_version }}
+    K3S_URL=https://{{ hostvars[groups['master'][0]]['ansible_host'] }}:6443
+    K3S_TOKEN={{ k3s_token }}
+    sh /tmp/k3s_install.sh -
+  environment:
+    INSTALL_K3S_EXEC: "agent {{ extra_agent_args }}"
+  when: "'workers' in group_names"
+  args:
+    creates: /usr/local/bin/k3s
+
+# --- Configuração do Usuário VAGRANT (Sem sudo) ---
+- name: Configurar acesso kubectl para o usuário vagrant
+  block:
+    - name: Criar diretório .kube
+      file:
+        path: /home/vagrant/.kube
+        state: directory
+        owner: vagrant
+        group: vagrant
+        mode: '0750'
+
+    - name: Copiar k3s.yaml para config do usuário e ajustar permissões
+      copy:
+        src: /etc/rancher/k3s/k3s.yaml
+        dest: /home/vagrant/.kube/config
+        remote_src: yes
+        owner: vagrant
+        group: vagrant
+        mode: '0600'
+
+    - name: Configurar variável de ambiente KUBECONFIG no bashrc
+      lineinfile:
+        path: /home/vagrant/.bashrc
+        line: "export KUBECONFIG=~/.kube/config"
+        regexp: "^export KUBECONFIG="
+        state: present
+        insertafter: EOF
+
+    - name: Adicionar autocomplete e alias 'k'
+      blockinfile:
+        path: /home/vagrant/.bashrc
+        block: |
+          source <(kubectl completion bash)
+          alias k=kubectl
+          complete -o default -F __start_kubectl k
+        marker: "# {mark} ANSIBLE MANAGED BLOCK - KUBECTL CONFIG"
+        
+  when: "'master' in group_names"
+
+# --- Setup Base do Cluster ---
+- name: Garantir que o namespace 'lakehouse' existe
+  shell: kubectl create namespace lakehouse
+  register: create_ns
+  failed_when: 
+    - create_ns.rc != 0
+    - "'AlreadyExists' not in create_ns.stderr"
+  changed_when: create_ns.rc == 0
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  when: "'master' in group_names"

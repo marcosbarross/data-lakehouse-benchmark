@@ -1,0 +1,14 @@
+---
+trino_image: "trinodb/trino:483"
+trino_node_port: 30080
+hive_metastore_uri: "thrift://hive-metastore.lakehouse.svc.cluster.local:9083"
+
+jvm_max_heap: "1G" 
+
+minio_endpoint: "http://minio-service.lakehouse.svc.cluster.local:9000"
+minio_access_key: "admin"
+minio_secret_key: "password123"
+
+postgres_url: "jdbc:postgresql://postgres-catalog.lakehouse.svc.cluster.local:5432/iceberg_catalog"
+postgres_user: "admin"
+postgres_password: "password123"

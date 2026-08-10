@@ -1,0 +1,14 @@
+---
+- name: Copiar manifesto do Hive Metastore para o Master
+  template:
+    src: hive-metastore.yml.j2
+    dest: /tmp/hive-metastore-k8s.yml
+  when: "'master' in group_names"
+
+- name: Aplicar manifesto do Hive Metastore
+  shell: kubectl apply -f /tmp/hive-metastore-k8s.yml
+  when: "'master' in group_names"
+
+- name: Aguardar Hive Metastore iniciar
+  shell: kubectl rollout status deployment/hive-metastore -n lakehouse --timeout=300s
+  when: "'master' in group_names"
