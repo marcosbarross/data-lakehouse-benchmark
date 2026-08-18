@@ -47,6 +47,8 @@ data:
     s3.path-style-access=true
     s3.aws-access-key={{ minio_access_key }}
     s3.aws-secret-key={{ minio_secret_key }}
+    delta.s3.transaction-log-conditional-writes.enabled=false
+    delta.enable-non-concurrent-writes=true
 
   # --- Configurações Específicas ---
   config-coordinator.properties: |

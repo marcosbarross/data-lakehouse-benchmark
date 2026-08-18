@@ -1,4 +1,44 @@
 apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hive-metastore-s3a-config
+  namespace: lakehouse
+data:
+  core-site.xml: |
+    <?xml version="1.0"?>
+    <configuration>
+      <property>
+        <name>fs.s3a.impl</name>
+        <value>org.apache.hadoop.fs.s3a.S3AFileSystem</value>
+      </property>
+      <property>
+        <name>fs.s3a.endpoint</name>
+        <value>minio-service.lakehouse.svc.cluster.local:9000</value>
+      </property>
+      <property>
+        <name>fs.s3a.connection.ssl.enabled</name>
+        <value>false</value>
+      </property>
+      <property>
+        <name>fs.s3a.path.style.access</name>
+        <value>true</value>
+      </property>
+      <property>
+        <name>fs.s3a.access.key</name>
+        <value>{{ minio_access_key }}</value>
+      </property>
+      <property>
+        <name>fs.s3a.secret.key</name>
+        <value>{{ minio_secret_key }}</value>
+      </property>
+      <property>
+        <name>fs.s3a.aws.credentials.provider</name>
+        <value>org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider</value>
+      </property>
+    </configuration>
+
+---
+apiVersion: v1
 kind: Service
 metadata:
   name: hive-metastore
@@ -39,5 +79,17 @@ spec:
               value: metastore
             - name: HMS_LOGLEVEL
               value: INFO
+            # The Hive image ships hadoop-aws as an optional tool, outside the
+            # Metastore classpath. Both jars are required for the S3A client.
+            - name: HIVE_AUX_JARS_PATH
+              value: /opt/hadoop/share/hadoop/tools/lib/hadoop-aws-3.4.1.jar,/opt/hadoop/share/hadoop/tools/lib/bundle-2.24.6.jar
           ports:
             - containerPort: {{ hive_metastore_port }}
+          volumeMounts:
+            - name: s3a-config
+              mountPath: /opt/hive/conf/core-site.xml
+              subPath: core-site.xml
+      volumes:
+        - name: s3a-config
+          configMap:
+            name: hive-metastore-s3a-config
