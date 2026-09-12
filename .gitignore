@@ -4,3 +4,13 @@ env/
 *pyc
 __pycache__/
 .env
+
+# OpenTofu / Terraform
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+crash.log
+*.tfvars
+!*.tfvars.example
+ansible/inventory/hosts.magalu.yml
