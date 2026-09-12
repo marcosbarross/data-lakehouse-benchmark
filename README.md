@@ -1,4 +1,4 @@
-# Automated Lakehouse Orchestration with IaC & Storage Format Benchmark (Iceberg vs Delta Lake)
+# Automated Lakehouse Orchestration with IaC & Table Format Benchmark (Iceberg vs Delta Lake)
 
 <p align="center">
   <a href="README.pt-BR.md">🇧🇷 <b>Versão em Português</b></a> | 
@@ -6,8 +6,9 @@
 </p>
 
 <p align="center">
+  <img src="https://img.shields.io/badge/OpenTofu-1.6+-FFDA1A?style=for-the-badge&logo=opentofu&logoColor=black" alt="OpenTofu" />
+  <img src="https://img.shields.io/badge/Magalu_Cloud-MGC-0086FF?style=for-the-badge&logo=icloud&logoColor=white" alt="Magalu Cloud" />
   <img src="https://img.shields.io/badge/Vagrant-2.4+-1563FF?style=for-the-badge&logo=vagrant&logoColor=white" alt="Vagrant" />
-  <img src="https://img.shields.io/badge/VirtualBox-7.0+-183A61?style=for-the-badge&logo=virtualbox&logoColor=white" alt="VirtualBox" />
   <img src="https://img.shields.io/badge/Kubernetes-K3s-FFC61C?style=for-the-badge&logo=k3s&logoColor=black" alt="K3s" />
   <img src="https://img.shields.io/badge/Ansible-2.16+-EE0000?style=for-the-badge&logo=ansible&logoColor=white" alt="Ansible" />
   <img src="https://img.shields.io/badge/Trino-483-DD00A1?style=for-the-badge&logo=trino&logoColor=white" alt="Trino" />
@@ -21,78 +22,114 @@
 
 ## 📌 Overview
 
-This repository provides a complete, automated, reproducible **Infrastructure as Code (IaC)** environment for deploying a modern **Data Lakehouse** architecture on top of a multi-node **Kubernetes (K3s)** cluster.
+This repository provides an automated, reproducible **Infrastructure as Code (IaC)** environment for deploying a modern **Data Lakehouse** architecture on top of a multi-node **Kubernetes (K3s)** cluster.
 
-It features an end-to-end performance benchmarking pipeline comparing the two leading modern table formats: **Apache Iceberg** and **Delta Lake**, queried by **Trino** engine against standardized **TPC-H (Scale Factor 1)** workloads.
+It includes an end-to-end performance benchmarking pipeline comparing the two leading modern open table formats: **Apache Iceberg** and **Delta Lake**, queried by the distributed SQL query engine **Trino** against standardized **TPC-H (Scale Factor 1 - SF1)** workloads backed by S3-compatible object storage (**MinIO**).
 
-Developed as a Bachelor's Dissertation (TCC - *Trabalho de Conclusão de Curso*) project in Computer Engineering / Electrical Engineering at IFPE.
+### 🌐 Dual Execution Environments Supported
+The architecture is designed to support two deployment targets seamlessly:
+1. **Cloud Production/Benchmark (Magalu Cloud via OpenTofu):** A **6-node** cluster engineered for high-performance scientific evaluation with strict physical isolation between coordination, storage I/O, metadata catalogs, and distributed compute workers (3 dedicated 16 GB Trino worker nodes).
+2. **Local Development (Vagrant + VirtualBox):** A compact multi-node cluster (1 Master, 2 Workers) designed for offline testing and development workflows without cloud costs.
+
+Developed as a Bachelor's Dissertation (TCC - *Trabalho de Conclusão de Curso*) project in Engineering at the **Federal Institute of Pernambuco (IFPE) - Campus Paulista**.
 
 ---
 
-## 🏗️ Architecture & Component Topology
+## 🏗️ Architecture & Topology
 
-The entire infrastructure is provisioned through **Vagrant (VirtualBox)** and configured via **Ansible Playbooks** on a dedicated private network (`192.168.56.0/24`).
+The architecture decouples the **Storage**, **Catalog/Metadata**, and **Distributed Compute** layers into dedicated Kubernetes nodes:
 
 ```mermaid
 graph TD
-    subgraph Host["Host Machine"]
-        Vagrant["Vagrant CLI & Triggers"]
-        Ansible["Ansible Playbook Engine"]
-        Bench["Python TPC-H Benchmark Runner"]
+    subgraph Management["Infrastructure as Code & Benchmark Client"]
+        IaC["OpenTofu / Vagrant"]
+        AnsibleEngine["Ansible Automation Engine"]
+        Bench["Benchmark Suite (Python Runner)"]
     end
 
     subgraph Cluster["K3s Kubernetes Cluster (lakehouse namespace)"]
-        subgraph MasterNode["k3s-master (192.168.56.80)"]
-            K3sMaster["K3s Server Control Plane"]
-            TrinoCoord["Trino Coordinator (:8080 -> NodePort :30080)"]
+        subgraph MasterNode["k3s-master (Coordination Layer)"]
+            K3sMaster["K3s Control Plane"]
+            TrinoCoord["Trino Coordinator (:8080 -> :30080)"]
         end
 
-        subgraph Worker1["k3s-worker1 (192.168.56.81)"]
-            K3sAgent1["K3s Agent (Storage Host)"]
-            MinIO["MinIO S3 Storage (Console :30901, API :30900)"]
-            PostgreSQL["PostgreSQL 16 (Iceberg JDBC Catalog :30432)"]
-            HiveMetastore["Apache Hive Metastore 4.2 (Delta Lake Catalog :9083)"]
+        subgraph Worker1["k3s-worker1 (Dedicated Storage Layer)"]
+            K3sAgent1["K3s Agent (node-role: storage)"]
+            MinIO["MinIO S3 Storage (:30901 Console, :30900 API)"]
+            TaintNotice["Taint: dedicated=minio:NoSchedule"]
         end
 
-        subgraph Worker2["k3s-worker2 (192.168.56.82)"]
-            K3sAgent2["K3s Agent (Compute Host)"]
-            TrinoWorker["Trino Worker Pod"]
+        subgraph Worker5["k3s-worker5 (Dedicated Metadata Layer)"]
+            K3sAgent5["K3s Agent (node-role: catalog)"]
+            Postgres["PostgreSQL 16 (Iceberg JDBC Catalog)"]
+            Hive["Hive Metastore 4.2 (Delta Lake Catalog)"]
+            TaintCatalog["Taint: dedicated=catalog:NoSchedule"]
+        end
+
+        subgraph Worker2["k3s-worker2 (Compute 1 - 16 GB)"]
+            K3sAgent2["K3s Agent (node-role: compute)"]
+            TrinoW1["Trino Worker Pod 1 (12 GB JVM)"]
+        end
+
+        subgraph Worker3["k3s-worker3 (Compute 2 - 16 GB)"]
+            K3sAgent3["K3s Agent (node-role: compute)"]
+            TrinoW2["Trino Worker Pod 2 (12 GB JVM)"]
+        end
+
+        subgraph Worker4["k3s-worker4 (Compute 3 - 16 GB)"]
+            K3sAgent4["K3s Agent (node-role: compute)"]
+            TrinoW3["Trino Worker Pod 3 (12 GB JVM)"]
         end
     end
 
-    Vagrant -->|Creates VMs| MasterNode
-    Vagrant -->|Creates VMs| Worker1
-    Vagrant -->|Creates VMs| Worker2
-    Ansible -->|Provisions Cluster & Manifests| Cluster
+    IaC -->|Provisions VMs, SG & SSH| Cluster
+    AnsibleEngine -->|Bootstraps K3s, Labels, Taints & Manifests| Cluster
     Bench -->|Executes TPC-H SQL Queries| TrinoCoord
 
-    TrinoCoord -.->|Iceberg Catalog (JDBC)| PostgreSQL
-    TrinoCoord -.->|Delta Lake Catalog (Thrift)| HiveMetastore
-    TrinoCoord -.->|Data Query & Ingestion| MinIO
-    TrinoWorker -.->|Data Processing| MinIO
+    TrinoCoord -.->|Iceberg Metadata (JDBC)| Postgres
+    TrinoCoord -.->|Delta Lake Metadata (Thrift)| Hive
+    TrinoCoord -->|Distributes Execution Plan| TrinoW1
+    TrinoCoord -->|Distributes Execution Plan| TrinoW2
+    TrinoCoord -->|Distributes Execution Plan| TrinoW3
+
+    TrinoW1 -.->|Parquet Read over S3| MinIO
+    TrinoW2 -.->|Parquet Read over S3| MinIO
+    TrinoW3 -.->|Parquet Read over S3| MinIO
 ```
 
-### Virtual Machine Topology
+### Cloud Virtual Machine Topology (Magalu Cloud - 6 Nodes)
 
-| Node Name | Role | IP Address | vCPUs | RAM | Base OS |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **`k3s-master`** | K3s Control Plane & Trino Coordinator | `192.168.56.80` | 2 | 2048 MB (2 GB) | Ubuntu 24.04 LTS (Bento) |
-| **`k3s-worker1`** | K3s Worker & Storage Services (MinIO, Postgres, Hive) | `192.168.56.81` | 2 | 8192 MB (8 GB) | Ubuntu 24.04 LTS (Bento) |
-| **`k3s-worker2`** | K3s Worker & Trino Worker Compute | `192.168.56.82` | 2 | 4096 MB (4 GB) | Ubuntu 24.04 LTS (Bento) |
+| Node | Architectural Role | Machine Type | vCPUs | RAM | Configuration / Isolation |
+| :--- | :--- | :--- | :---: | :---: | :--- |
+| **`lakehouse-k3s-master`** | Control Plane & Trino Coordinator | `BV2-4-40` | 2 | 4 GB | `node-role.kubernetes.io/control-plane: true` |
+| **`lakehouse-k3s-worker1`** | Dedicated MinIO Object Storage | `BV4-8-100` | 4 | 8 GB | Label `node-role: storage`<br>Taint `dedicated=minio:NoSchedule` (100 GB NVMe) |
+| **`lakehouse-k3s-worker5`** | Dedicated Metadata Catalogs (Postgres + Hive) | `BV2-4-40` | 2 | 4 GB | Label `node-role: catalog`<br>Taint `dedicated=catalog:NoSchedule` |
+| **`lakehouse-k3s-worker2`** | Trino Compute Worker 1 | `BV4-16-100` | 4 | 16 GB | Label `node-role: compute` (12 GB JVM Heap) |
+| **`lakehouse-k3s-worker3`** | Trino Compute Worker 2 | `BV4-16-100` | 4 | 16 GB | Label `node-role: compute` (12 GB JVM Heap) |
+| **`lakehouse-k3s-worker4`** | Trino Compute Worker 3 | `BV4-16-100` | 4 | 16 GB | Label `node-role: compute` (12 GB JVM Heap) |
 
-> **Total Resource Allocation**: 6 vCPUs, ~14.3 GB RAM.
+> **Total Cloud Resources**: 20 vCPUs, 64 GB RAM, 420 GB NVMe SSD storage.
+
+### Local Virtual Machine Topology (Vagrant - 3 Nodes)
+
+| Node | Role | Static IP | vCPUs | RAM | Base OS |
+| :--- | :--- | :--- | :---: | :---: | :--- |
+| **`k3s-master`** | Control Plane & Trino Coordinator | `192.168.56.80` | 2 | 2 GB | Ubuntu 24.04 LTS |
+| **`k3s-worker1`** | Dedicated MinIO Storage | `192.168.56.81` | 2 | 8 GB | Ubuntu 24.04 LTS |
+| **`k3s-worker2`** | Catalogs and Trino Worker Compute | `192.168.56.82` | 2 | 4 GB | Ubuntu 24.04 LTS |
 
 ---
 
 ## ⚙️ Stack & Services Reference
 
-| Service | Technology & Version | Access Point | Default Credentials | Description |
+| Service | Component | Access Point / URL | Default Credentials | Description |
 | :--- | :--- | :--- | :--- | :--- |
-| **Query Engine** | Trino `483` | `http://192.168.56.80:30080/ui` | User: `trino` | Distributed SQL query engine |
-| **Object Storage** | MinIO `latest` | `http://192.168.56.80:30901` (Console)<br>`http://192.168.56.80:30900` (API) | User: `admin`<br>Pass: `password123` | S3-compatible storage (`warehouse` bucket) |
-| **Metadata Catalog** | PostgreSQL `16-alpine` | `192.168.56.80:30432` | User: `admin`<br>Pass: `password123`<br>DB: `iceberg_catalog` | JDBC Catalog for Apache Iceberg & Hive backend |
-| **Delta Metastore** | Apache Hive Metastore `4.2.0` | `thrift://hive-metastore.lakehouse.svc:9083` | *N/A (Internal)* | Standalone Hive Metastore for Delta Lake |
-| **Kubernetes** | K3s `v1.31.4+k3s1` | `https://192.168.56.80:6443` | *Kubeconfig on Master* | Lightweight certified Kubernetes distribution |
+| **Trino** | Web UI / Coord. | `http://<MASTER_IP>:30080` | User: `trino` | Distributed SQL query engine |
+| **MinIO** | Web Console | `http://<WORKER1_IP>:30901` | User: `admin`<br>Pass: `password123` | S3 Management dashboard |
+| **MinIO** | S3 API Endpoint | `http://<WORKER1_IP>:30900` | User: `admin`<br>Pass: `password123` | S3 API endpoint (`warehouse` bucket) |
+| **PostgreSQL** | Iceberg Catalog | `http://<MASTER_IP>:30432` | User: `admin`<br>Pass: `password123` | Database `iceberg_catalog` |
+| **Hive Metastore** | Delta Metastore | `thrift://hive-metastore:9083` | *N/A (Internal)* | Standalone Hive Metastore for Delta Lake |
+| **Kubernetes** | K3s API | `https://<MASTER_IP>:6443` | *Kubeconfig on Master* | Lightweight certified Kubernetes distribution |
 
 ---
 
@@ -104,39 +141,23 @@ Trino is pre-configured with three catalogs:
 2. **`iceberg`**:
    - Connector: `iceberg`
    - Catalog Type: `jdbc` (backed by PostgreSQL `iceberg_catalog`)
-   - Data Storage: MinIO (`s3://warehouse/`) via S3 path-style access.
+   - Data Storage: MinIO (`s3://warehouse/`) via path-style access.
 3. **`delta_lake`**:
    - Connector: `delta_lake`
    - Metastore: Apache Hive Metastore via Thrift URI.
-   - Data Storage: MinIO (`s3a://warehouse/`) via S3 path-style access.
+   - Data Storage: MinIO (`s3a://warehouse/`) via path-style access.
 
 ---
 
-## 📋 Prerequisites
+## 🚀 Cloud Deployment Guide (Magalu Cloud)
 
-Before running the project, ensure you have the following installed on your host machine:
-
-- **Linux** (Ubuntu/Debian, Fedora, Arch, etc.) or **macOS**
-- [VirtualBox](https://www.virtualbox.org/) (Version >= 7.0)
-- [Vagrant](https://www.vagrantup.com/) (Version >= 2.4)
-- **Python 3.10+** with `venv` support
-- **Host Hardware**: Minimum 16 GB of RAM and 4 physical CPU cores (6 vCPUs).
-
----
-
-## 🚀 Quick Start
-
-### 1. Clone the Repository
-
-```bash
-git clone https://github.com/marcosbarross/data-lakehouse-benchmark.git
-cd data-lakehouse-benchmark
-```
+### 1. Prerequisites
+- [OpenTofu](https://opentofu.org/) installed (`tofu version >= 1.6`).
+- Active **Magalu Cloud** account with an **API Key**.
+- SSH key pair (`~/.ssh/xerlock` and `~/.ssh/xerlock.pub`).
+- Python 3.10+ with `venv`.
 
 ### 2. Set Up Python Virtual Environment
-
-Create and activate a virtual environment named `env` (Vagrant is configured to use the Ansible binary located inside this virtual environment):
-
 ```bash
 python3 -m venv env
 source env/bin/activate
@@ -144,119 +165,134 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### 3. Provision the Infrastructure
+### 3. Provision Infrastructure with OpenTofu
+```bash
+cd tofu
+cp terraform.tfvars.example terraform.tfvars
+```
+Edit `terraform.tfvars` with your API Key and SSH paths:
+```hcl
+mgc_api_key         = "YOUR_API_KEY_HERE"
+region              = "br-se1"
+ssh_public_key_path = "~/.ssh/xerlock.pub"
+ssh_private_key_path= "~/.ssh/xerlock"
+```
 
-Run `vagrant up`. This will:
-1. Download the `bento/ubuntu-24.04` box.
-2. Spin up and configure the 3 VMs with static IPs and private networking.
-3. Automatically trigger the Ansible playbook to install K3s, configure the cluster, deploy PostgreSQL, MinIO, Hive Metastore, and Trino.
+Initialize and apply:
+```bash
+tofu init
+tofu apply
+```
+> **Seamless Automation:** OpenTofu provisions the 5 VMs and **automatically generates**:
+> - The Ansible inventory at `ansible/inventory/hosts.magalu.yml`.
+> - The `.env` environment variables file at the project root with public IP addresses for Trino and MinIO.
+
+Return to the repository root:
+```bash
+cd ..
+```
+
+### 4. Run Ansible Provisioning
+Execute the Ansible playbook using the generated inventory:
+```bash
+ansible-playbook -i ansible/inventory/hosts.magalu.yml ansible/site.yml
+```
+Ansible will:
+1. Install K3s server on the Master and connect all 4 Workers.
+2. Apply the label `node-role=storage` and taint `dedicated=minio:NoSchedule` on `worker1`.
+3. Apply the label `node-role=compute` on `worker2`, `worker3`, and `worker4`.
+4. Deploy MinIO, PostgreSQL, and Hive Metastore.
+5. Deploy Trino Coordinator on the Master and **3 replicas of Trino Worker**, automatically distributed exactly 1 per compute node via `podAntiAffinity`.
+
+---
+
+## 💻 Local Deployment Guide (Vagrant)
+
+To deploy locally on VirtualBox:
 
 ```bash
+# 1. Activate virtual environment
+source env/bin/activate
+
+# 2. Spin up local cluster
 vagrant up
-```
 
-> ⏱️ *The initial provisioning process typically takes around 5 to 10 minutes depending on your internet connection and disk speed.*
-
-### 4. Verify Cluster Health
-
-Check if the VMs are running:
-```bash
-vagrant status
-```
-
-SSH into the master node and inspect the deployed pods:
-```bash
-vagrant ssh k3s-master
-kubectl get nodes -o wide
-kubectl get pods -n lakehouse -o wide
-exit
-```
-
-You should see all pods (`trino-coordinator`, `trino-worker`, `minio`, `postgres`, `hive-metastore`) in `Running` status.
-
----
-
-## 🧪 Running the TPC-H Benchmark
-
-The repository includes an automated Python benchmarking suite (`benchmark_tpch.py`) that:
-
-1. **Creates Schemas**: Creates `benchmark` schema in both `iceberg` and `delta_lake` catalogs.
-2. **Stages & Ingests Data**: Copies all standard TPC-H SF1 tables (`customer`, `orders`, `lineitem`, `part`, `partsupp`, `supplier`, `nation`, `region`) from `tpch.sf1` into both target catalogs on MinIO Parquet storage.
-3. **Executes Benchmark Queries**: Executes queries `Q1` through `Q10` across both table formats for 3 iterations each, measuring query latency and resource metrics.
-4. **Calculates Statistics**: Computes average execution time, minimum, maximum, standard deviation, and relative speedup.
-5. **Generates Visual Plots**: Creates high-resolution charts in `benchmark_plots/`.
-6. **Produces Markdown Report**: Automatically compiles the results into `benchmark_report.md`.
-
-### Run the Benchmark
-
-With your virtual environment activated:
-
-```bash
-python benchmark_tpch.py
+# 3. Reapply Ansible playbook if needed
+ansible-playbook -i ansible/inventory/hosts.yml ansible/site.yml
 ```
 
 ---
 
-## 📈 Benchmark Results Summary
+## 🧪 Running the Lakehouse Benchmark Suite
 
-*Sample benchmark run on TPC-H SF1 (~1GB) across 10 queries (3 iterations each):*
+The benchmarking suite automatically reads connection configurations from the `.env` file generated by OpenTofu (or defaults to local Vagrant if `.env` is absent).
 
-| Query | Iceberg Average (s) | Delta Lake Average (s) | Relative Speedup (Delta vs Iceberg) | Fastest Format |
-| :---: | :---: | :---: | :---: | :---: |
-| **Q1** | 0.67s | 0.60s | 1.13x | 🏆 Delta Lake |
-| **Q2** | 0.59s | 0.65s | 0.91x | 🏆 Iceberg |
-| **Q3** | 0.90s | 0.78s | 1.16x | 🏆 Delta Lake |
-| **Q4** | 0.62s | 0.73s | 0.86x | 🏆 Iceberg |
-| **Q5** | 1.11s | 1.15s | 0.97x | 🏆 Iceberg |
-| **Q6** | 0.28s | 0.37s | 0.77x | 🏆 Iceberg |
-| **Q7** | 0.99s | 1.07s | 0.93x | 🏆 Iceberg |
-| **Q8** | 1.42s | 1.65s | 0.86x | 🏆 Iceberg |
-| **Q9** | 1.62s | 1.69s | 0.96x | 🏆 Iceberg |
-| **Q10** | 1.15s | 1.11s | 1.04x | 🏆 Delta Lake |
-| **Total Accum.** | **9.36s** | **9.79s** | **-** | 🏆 **Iceberg (4.3% faster)** |
+### Single Entrypoint Execution
 
-### Visual Comparisons
+You can run the entire benchmark pipeline or specific benchmark families with a single Python command:
 
-| Average Query Latency | Relative Speedup | Total Accumulated Time |
-| :---: | :---: | :---: |
-| ![Iceberg vs Delta](benchmark_plots/iceberg_vs_deltalake.png) | ![Speedup](benchmark_plots/speedup_deltalake_vs_iceberg.png) | ![Total Time](benchmark_plots/total_time_comparison.png) |
+```bash
+# 1. Default unified execution (TPC-H Phase 1 & 2 + TPC-DS across SF1 and SF10, 3 iterations and auto-setup)
+python run_benchmark.py
+
+# 2. Run large scale factor SF100 on demand (executed only when explicitly passed)
+python run_benchmark.py --scale-factor sf100
+
+# 3. Run a specific benchmark suite (e.g., TPC-DS on SF10)
+python run_benchmark.py --benchmark tpcds --scale-factor sf10
+
+# 4. Regenerate master consolidated report and 6 chart categories from saved runs
+python run_benchmark.py --report-only
+```
+
+### Running Individual Benchmark Phases
+
+- **Phase 1: General Baseline (TPC-H SF1 — Q1 to Q10):**
+  ```bash
+  python run_benchmark.py --suite phase1
+  ```
+  Generates individual reports and comparison plots in `benchmark_results/tpch_sf1/`.
+
+- **Phase 2: Read Optimization & Data Skipping (Q3, Q6, Q7, Q19):**
+  ```bash
+  python run_benchmark.py --suite phase2
+  ```
+  Evaluates temporal (*hidden partitioning*) and categorical partitioning against unpartitioned baselines with `EXPLAIN ANALYZE` metrics stored in `benchmark_results/phase2_sf1/`.
+
+See [benchmark/README.md](benchmark/README.md) for full CLI parameters and metric details.
+
 
 ---
 
 ## 🛠️ Management & Useful Commands
 
-### Trino Interactive CLI
-Access the Trino CLI directly from the cluster:
+### SSH into Cluster Nodes
 ```bash
-vagrant ssh k3s-master -c "kubectl exec -it deploy/trino-coordinator -n lakehouse -- trino"
+# Connect to Master
+ssh -i ~/.ssh/xerlock ubuntu@<MASTER_PUBLIC_IP>
+
+# Inspect cluster state
+kubectl get nodes -o wide
+kubectl get pods -n lakehouse -o wide
 ```
 
+### Access Trino CLI
+```bash
+ssh -i ~/.ssh/xerlock ubuntu@<MASTER_PUBLIC_IP> \
+  "kubectl exec -it deploy/trino-coordinator -n lakehouse -- trino"
+```
 Inside Trino CLI:
 ```sql
 SHOW CATALOGS;
-SHOW SCHEMAS FROM iceberg;
-SHOW SCHEMAS FROM delta_lake;
 SELECT count(*) FROM iceberg.benchmark.lineitem;
 SELECT count(*) FROM delta_lake.benchmark.lineitem;
 ```
 
-### Re-running Ansible Provisioning
-If you modify any Ansible role or configuration, reapply without destroying the VMs:
+### Destroy Cloud Resources
+To stop instances and avoid unnecessary cloud costs after testing:
 ```bash
-./env/bin/ansible-playbook -i ansible/inventory/hosts.yml ansible/site.yml
-```
-
-### Teardown Infrastructure
-To suspend or destroy the virtual machines when done:
-```bash
-# Suspend VMs to save state
-vagrant suspend
-
-# Halt/Stop VMs
-vagrant halt
-
-# Completely destroy and clean up VMs
-vagrant destroy -f
+cd tofu
+tofu destroy
 ```
 
 ---
@@ -265,40 +301,48 @@ vagrant destroy -f
 
 ```text
 .
-├── Vagrantfile                         # Multi-node VirtualBox VM topology & provisioning definition
-├── requirements.txt                    # Python dependencies (Ansible, Trino DBAPI, Matplotlib, etc.)
-├── benchmark_tpch.py                   # Automated TPC-H ingestion, benchmark execution, and reporting
-├── benchmark_report.md                 # Markdown benchmark execution report
-├── benchmark_plots/                    # High-resolution benchmark comparison charts
-│   ├── iceberg_vs_deltalake.png
-│   ├── speedup_deltalake_vs_iceberg.png
-│   └── total_time_comparison.png
-├── ansible/
-│   ├── site.yml                        # Main Ansible playbook entrypoint
+├── tofu/                               # OpenTofu module for Magalu Cloud infrastructure
+│   ├── vms.tf                          # VM definitions (Master, Storage, 3 Compute)
+│   ├── security.tf                     # Firewall and Security Group rules
+│   ├── inventory.tf                    # Automatic generation of hosts.magalu.yml and .env
+│   ├── variables.tf                    # Instance machine types, region, and SSH keys
+│   └── outputs.tf                      # Public and private IP output definitions
+├── ansible/                            # Automated cluster configuration and service orchestration
+│   ├── site.yml                        # Main playbook entrypoint
+│   ├── ansible.cfg                     # Ansible core settings
 │   ├── inventory/
-│   │   └── hosts.yml                   # Inventory mapping nodes, groups, and SSH keys
+│   │   ├── hosts.yml                   # Local inventory for Vagrant
+│   │   └── hosts.magalu.yml            # Cloud inventory (generated by OpenTofu)
 │   └── roles/
-│       ├── k3s_install/                # K3s master & worker installation and configuration
-│       ├── postgres/                   # PostgreSQL catalog deployment manifests & config
-│       ├── minio/                      # MinIO S3 storage deployment manifests & bucket setup
-│       ├── hive_metastore/             # Apache Hive Metastore service deployment manifests
-│       └── trino/                      # Trino Coordinator & Worker deployments and catalog configs
-├── utils/
-│   └── README.MD                       # Quick commands and node endpoint reference
-└── README.pt-BR.md                     # Documentação completa em Português
+│       ├── k3s_install/                # K3s installation, node roles, labels and taints
+│       ├── postgres/                   # JDBC Catalog for Apache Iceberg
+│       ├── minio/                      # S3 Storage with dedicated node and hostPath PV
+│       ├── hive_metastore/             # Apache Hive Metastore for Delta Lake
+│       └── trino/                      # Trino Coordinator and 3 distributed Workers
+├── benchmark/                          # Unified lakehouse benchmark suite
+│   ├── README.md                       # Comprehensive benchmark documentation
+│   ├── common/                         # Trino client, DBAPI retries, EXPLAIN parser, config
+│   ├── phase1_baseline/                # TPC-H SF1 general baseline (Q1 to Q10)
+│   └── phase2_optimization/            # Partitioning, read optimization and data skipping
+├── run_benchmark.py                    # Single entrypoint script to run all or selected benchmarks
+├── benchmark_phase2.py                 # Convenience wrapper for Phase 2 benchmark
+├── Vagrantfile                         # Local multi-node VirtualBox topology definition
+├── requirements.txt                    # Python dependencies
+├── README.md                           # English Documentation
+└── README.pt-BR.md                     # Documentação em Português
 ```
 
 ---
 
 ## 🎓 Academic Context
 
-This project is part of the undergraduate Final Course Work (TCC - *Trabalho de Conclusão de Curso*) developed by **Marcos Barros** at **Instituto Federal de Educação, Ciência e Tecnologia de Pernambuco (IFPE)**.
+This project is part of the final undergraduate dissertation (TCC - *Trabalho de Conclusão de Curso*) by **Marcos Barros** at **Instituto Federal de Pernambuco (IFPE) - Campus Paulista**.
 
-- **Title**: *Infraestrutura como Código para Orquestração Automatizada de um Ambiente Lakehouse em Kubernetes* (Infrastructure as Code for Automated Orchestration of a Lakehouse Environment on Kubernetes)
-- **Institution**: IFPE - Campus Pesqueira
+- **Title**: *Infraestrutura como Código para Orquestração Automatizada de um Ambiente Lakehouse em Kubernetes*
+- **Institution**: IFPE - Campus Paulista
 
 ---
 
 ## 📄 License
 
-This project is licensed under the [MIT License](LICENSE) - feel free to use, modify, and distribute for academic and research purposes.
+Distributed under the [MIT License](LICENSE).
