@@ -15,12 +15,10 @@
 - name: Instalar K3s Server (Master)
   shell: >
     INSTALL_K3S_VERSION={{ k3s_version }}
-    sh /tmp/k3s_install.sh -
+    sh /tmp/k3s_install.sh
   environment:
     INSTALL_K3S_EXEC: "server {{ extra_server_args }}"
   when: "'master' in group_names"
-  args:
-    creates: /usr/local/bin/k3s
 
 - name: Aguardar o K3s Server iniciar
   wait_for:
@@ -46,38 +44,36 @@
 - name: Instalar K3s Agent (Worker)
   shell: >
     INSTALL_K3S_VERSION={{ k3s_version }}
-    K3S_URL=https://{{ hostvars[groups['master'][0]]['ansible_host'] }}:6443
+    K3S_URL=https://{{ hostvars[groups['master'][0]]['internal_ip'] | default(hostvars[groups['master'][0]]['ansible_host']) }}:6443
     K3S_TOKEN={{ k3s_token }}
-    sh /tmp/k3s_install.sh -
+    sh /tmp/k3s_install.sh
   environment:
     INSTALL_K3S_EXEC: "agent {{ extra_agent_args }}"
   when: "'workers' in group_names"
-  args:
-    creates: /usr/local/bin/k3s
 
-# --- Configuração do Usuário VAGRANT (Sem sudo) ---
-- name: Configurar acesso kubectl para o usuário vagrant
+# --- Configuração do Usuário (Sem sudo) ---
+- name: Configurar acesso kubectl para o usuário {{ k3s_user }}
   block:
     - name: Criar diretório .kube
       file:
-        path: /home/vagrant/.kube
+        path: "{{ k3s_user_home }}/.kube"
         state: directory
-        owner: vagrant
-        group: vagrant
+        owner: "{{ k3s_user }}"
+        group: "{{ k3s_user }}"
         mode: '0750'
 
     - name: Copiar k3s.yaml para config do usuário e ajustar permissões
       copy:
         src: /etc/rancher/k3s/k3s.yaml
-        dest: /home/vagrant/.kube/config
+        dest: "{{ k3s_user_home }}/.kube/config"
         remote_src: yes
-        owner: vagrant
-        group: vagrant
+        owner: "{{ k3s_user }}"
+        group: "{{ k3s_user }}"
         mode: '0600'
 
     - name: Configurar variável de ambiente KUBECONFIG no bashrc
       lineinfile:
-        path: /home/vagrant/.bashrc
+        path: "{{ k3s_user_home }}/.bashrc"
         line: "export KUBECONFIG=~/.kube/config"
         regexp: "^export KUBECONFIG="
         state: present
@@ -85,7 +81,7 @@
 
     - name: Adicionar autocomplete e alias 'k'
       blockinfile:
-        path: /home/vagrant/.bashrc
+        path: "{{ k3s_user_home }}/.bashrc"
         block: |
           source <(kubectl completion bash)
           alias k=kubectl
@@ -105,3 +101,124 @@
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
   when: "'master' in group_names"
+
+# --- Isolamento do Nó Dedicado ao MinIO ---
+- name: Aguardar registro do nó dedicado ao MinIO no cluster
+  shell: kubectl get node {{ hostvars[item]['ansible_facts']['hostname'] | default(hostvars[item]['ansible_hostname'] | default(item)) }}
+  register: minio_node_check
+  until: minio_node_check.rc == 0
+  retries: 20
+  delay: 5
+  loop: "{{ groups['minio_node'] | default([]) }}"
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  when:
+    - "'master' in group_names"
+    - groups['minio_node'] is defined
+    - groups['minio_node'] | length > 0
+
+- name: Rotular nó dedicado ao MinIO
+  shell: >
+    kubectl label node {{ hostvars[item]['ansible_facts']['hostname'] | default(hostvars[item]['ansible_hostname'] | default(item)) }}
+    {{ minio_node_label_key }}={{ minio_node_label_value }} --overwrite
+  register: label_result
+  changed_when: "'not labeled' not in label_result.stdout"
+  loop: "{{ groups['minio_node'] | default([]) }}"
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  when:
+    - "'master' in group_names"
+    - groups['minio_node'] is defined
+    - groups['minio_node'] | length > 0
+
+- name: Aplicar taint no nó dedicado ao MinIO
+  shell: >
+    kubectl taint nodes {{ hostvars[item]['ansible_facts']['hostname'] | default(hostvars[item]['ansible_hostname'] | default(item)) }}
+    {{ minio_node_taint_key }}={{ minio_node_taint_value }}:{{ minio_node_taint_effect }} --overwrite
+  register: taint_result
+  changed_when: "'not tainted' not in taint_result.stdout and 'already has' not in taint_result.stderr"
+  failed_when:
+    - taint_result.rc != 0
+    - "'already has' not in taint_result.stderr"
+  loop: "{{ groups['minio_node'] | default([]) }}"
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  when:
+    - "'master' in group_names"
+    - groups['minio_node'] is defined
+    - groups['minio_node'] | length > 0
+
+# --- Configuração dos Nós de Computação (Trino Workers) ---
+- name: Aguardar registro dos nós de computação no cluster
+  shell: kubectl get node {{ hostvars[item]['ansible_facts']['hostname'] | default(hostvars[item]['ansible_hostname'] | default(item)) }}
+  register: compute_node_check
+  until: compute_node_check.rc == 0
+  retries: 20
+  delay: 5
+  loop: "{{ groups['compute_nodes'] | default([]) }}"
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  when:
+    - "'master' in group_names"
+    - groups['compute_nodes'] is defined
+    - groups['compute_nodes'] | length > 0
+
+- name: Rotular nós de computação (Trino)
+  shell: >
+    kubectl label node {{ hostvars[item]['ansible_facts']['hostname'] | default(hostvars[item]['ansible_hostname'] | default(item)) }}
+    {{ compute_node_label_key }}={{ compute_node_label_value }} --overwrite
+  register: compute_label_result
+  changed_when: "'not labeled' not in compute_label_result.stdout"
+  loop: "{{ groups['compute_nodes'] | default([]) }}"
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  when:
+    - "'master' in group_names"
+    - groups['compute_nodes'] is defined
+    - groups['compute_nodes'] | length > 0
+
+# --- Configuração do Nó Dedicado aos Catálogos (Postgres + Hive) ---
+- name: Aguardar registro do nó dedicado aos catálogos no cluster
+  shell: kubectl get node {{ hostvars[item]['ansible_facts']['hostname'] | default(hostvars[item]['ansible_hostname'] | default(item)) }}
+  register: catalog_node_check
+  until: catalog_node_check.rc == 0
+  retries: 20
+  delay: 5
+  loop: "{{ groups['catalog_nodes'] | default([]) }}"
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  when:
+    - "'master' in group_names"
+    - groups['catalog_nodes'] is defined
+    - groups['catalog_nodes'] | length > 0
+
+- name: Rotular nó dedicado aos catálogos
+  shell: >
+    kubectl label node {{ hostvars[item]['ansible_facts']['hostname'] | default(hostvars[item]['ansible_hostname'] | default(item)) }}
+    {{ catalog_node_label_key }}={{ catalog_node_label_value }} --overwrite
+  register: catalog_label_result
+  changed_when: "'not labeled' not in catalog_label_result.stdout"
+  loop: "{{ groups['catalog_nodes'] | default([]) }}"
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  when:
+    - "'master' in group_names"
+    - groups['catalog_nodes'] is defined
+    - groups['catalog_nodes'] | length > 0
+
+- name: Aplicar taint no nó dedicado aos catálogos
+  shell: >
+    kubectl taint nodes {{ hostvars[item]['ansible_facts']['hostname'] | default(hostvars[item]['ansible_hostname'] | default(item)) }}
+    {{ catalog_node_taint_key }}={{ catalog_node_taint_value }}:{{ catalog_node_taint_effect }} --overwrite
+  register: catalog_taint_result
+  changed_when: "'not tainted' not in catalog_taint_result.stdout and 'already has' not in catalog_taint_result.stderr"
+  failed_when:
+    - catalog_taint_result.rc != 0
+    - "'already has' not in catalog_taint_result.stderr"
+  loop: "{{ groups['catalog_nodes'] | default([]) }}"
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  when:
+    - "'master' in group_names"
+    - groups['catalog_nodes'] is defined
+    - groups['catalog_nodes'] | length > 0

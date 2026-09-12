@@ -1,4 +1,30 @@
 apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: {{ minio_pv_name }}
+  labels:
+    app: minio
+spec:
+  capacity:
+    storage: {{ minio_storage_size }}
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: {{ minio_storage_class }}
+  hostPath:
+    path: {{ minio_host_path }}
+    type: DirectoryOrCreate
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: {{ minio_node_label_key }}
+              operator: In
+              values:
+                - {{ minio_node_label_value }}
+
+---
+apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: minio-pvc
@@ -6,9 +32,11 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
+  storageClassName: {{ minio_storage_class }}
   resources:
     requests:
       storage: {{ minio_storage_size }}
+  volumeName: {{ minio_pv_name }}
 
 ---
 apiVersion: v1
@@ -47,7 +75,12 @@ spec:
         app: minio
     spec:
       nodeSelector:
-        kubernetes.io/hostname: k3s-worker1
+        {{ minio_node_label_key }}: "{{ minio_node_label_value }}"
+      tolerations:
+        - key: "{{ minio_node_taint_key }}"
+          operator: "Equal"
+          value: "{{ minio_node_taint_value }}"
+          effect: "{{ minio_node_taint_effect }}"
       containers:
         - name: minio
           image: {{ minio_image }}
@@ -64,6 +97,13 @@ spec:
           ports:
             - containerPort: 9000
             - containerPort: 9001
+          resources:
+            requests:
+              cpu: "{{ minio_cpu_request }}"
+              memory: "{{ minio_memory_request }}"
+            limits:
+              cpu: "{{ minio_cpu_limit }}"
+              memory: "{{ minio_memory_limit }}"
           volumeMounts:
             - mountPath: /data
               name: minio-storage

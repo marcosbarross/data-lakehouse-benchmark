@@ -69,9 +69,15 @@ spec:
         app: hive-metastore
     spec:
       nodeSelector:
-        kubernetes.io/hostname: k3s-worker1
+        node-role: catalog
+      tolerations:
+        - key: "dedicated"
+          operator: "Equal"
+          value: "catalog"
+          effect: "NoSchedule"
       containers:
         - name: hive-metastore
+
           image: {{ hive_metastore_image }}
           imagePullPolicy: IfNotPresent
           env:

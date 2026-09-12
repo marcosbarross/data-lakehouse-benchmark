@@ -1,4 +1,11 @@
 ---
+- name: Garantir que o diretório de dados do MinIO existe no host dedicado
+  file:
+    path: "{{ minio_host_path }}"
+    state: directory
+    mode: '0777'
+  when: "'minio_node' in group_names"
+
 - name: Copiar manifesto do MinIO para o Master
   template:
     src: minio.yml.j2
@@ -7,10 +14,14 @@
 
 - name: Aplicar manifesto do MinIO
   shell: kubectl apply -f /tmp/minio-k8s.yml
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
   when: "'master' in group_names"
 
 - name: Aguardar MinIO iniciar
   shell: kubectl rollout status deployment/minio -n lakehouse --timeout=120s
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
   when: "'master' in group_names"
 
 - name: Criar Job para configurar o Bucket inicial
@@ -27,7 +38,7 @@
         spec:
           containers:
           - name: mc
-            image: minio/mc
+            image: "{{ minio_mc_image }}"
             command: ["/bin/sh", "-c"]
             args:
             - >
@@ -36,5 +47,7 @@
               mc anonymous set public myminio/warehouse;
           restartPolicy: Never
     EOF
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
   when: "'master' in group_names"
   ignore_errors: yes 

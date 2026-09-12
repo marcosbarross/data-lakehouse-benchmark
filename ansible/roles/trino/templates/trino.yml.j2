@@ -9,11 +9,17 @@ data:
     node.environment=production
     node.data-dir=/data/trino
 
-  jvm.config: |
+  jvm-coordinator.config: |
     -server
-    -Xmx{{ jvm_max_heap }}
-    -XX:InitialRAMPercentage=80
-    -XX:MaxRAMPercentage=80
+    -Xmx{{ trino_coordinator_heap | default('2G') }}
+    -XX:G1HeapRegionSize=32M
+    -XX:+ExplicitGCInvokesConcurrent
+    -XX:+HeapDumpOnOutOfMemoryError
+    -XX:OnOutOfMemoryError=kill -9 %p
+
+  jvm-worker.config: |
+    -server
+    -Xmx{{ trino_worker_heap | default('12G') }}
     -XX:G1HeapRegionSize=32M
     -XX:+ExplicitGCInvokesConcurrent
     -XX:+HeapDumpOnOutOfMemoryError
@@ -53,17 +59,16 @@ data:
   # --- Configurações Específicas ---
   config-coordinator.properties: |
     coordinator=true
-    node-scheduler.include-coordinator=true
+    node-scheduler.include-coordinator=false
     http-server.http.port=8080
-    query.max-memory=1GB
-    query.max-memory-per-node=512MB
+    query.max-memory={{ trino_query_max_memory | default('20GB') }}
     discovery.uri=http://localhost:8080
 
   config-worker.properties: |
     coordinator=false
     http-server.http.port=8080
-    query.max-memory=1GB
-    query.max-memory-per-node=512MB
+    query.max-memory={{ trino_query_max_memory | default('20GB') }}
+    query.max-memory-per-node={{ trino_query_max_memory_per_node | default('8GB') }}
     discovery.uri=http://trino-service.lakehouse.svc.cluster.local:8080
 
 ---
@@ -99,7 +104,7 @@ spec:
         app: trino-coordinator
     spec:
       nodeSelector:
-        kubernetes.io/hostname: k3s-worker1
+        node-role.kubernetes.io/control-plane: "true"
       containers:
         - name: trino-coordinator
           image: {{ trino_image }}
@@ -128,7 +133,7 @@ spec:
             items:
               - key: node.properties
                 path: node.properties
-              - key: jvm.config
+              - key: jvm-coordinator.config
                 path: jvm.config
               - key: iceberg.properties
                 path: iceberg.properties
@@ -144,7 +149,7 @@ metadata:
   name: trino-worker
   namespace: lakehouse
 spec:
-  replicas: 1
+  replicas: {{ trino_worker_replicas | default(3) }}
   selector:
     matchLabels:
       app: trino-worker
@@ -154,7 +159,19 @@ spec:
         app: trino-worker
     spec:
       nodeSelector:
-        kubernetes.io/hostname: k3s-worker2
+        {{ compute_node_label_key }}: "{{ compute_node_label_value }}"
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - trino-worker
+                topologyKey: kubernetes.io/hostname
       containers:
         - name: trino-worker
           image: {{ trino_image }}
@@ -183,7 +200,7 @@ spec:
             items:
               - key: node.properties
                 path: node.properties
-              - key: jvm.config
+              - key: jvm-worker.config
                 path: jvm.config
               - key: iceberg.properties
                 path: iceberg.properties

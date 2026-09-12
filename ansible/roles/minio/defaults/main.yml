@@ -1,7 +1,26 @@
 ---
-minio_image: "minio/minio:latest"
+minio_image: "quay.io/minio/minio:latest"
+minio_mc_image: "quay.io/minio/mc:latest"
 minio_user: "admin"
 minio_password: "password123"
 minio_storage_size: "10Gi"
 minio_api_nodeport: 30900
 minio_console_nodeport: 30901
+
+# Recursos (CPU e Memória)
+minio_cpu_request: "250m"
+minio_memory_request: "512Mi"
+minio_cpu_limit: "1000m"
+minio_memory_limit: "2Gi"
+
+# Isolamento de nó (Label e Taint)
+minio_node_label_key: "node-role"
+minio_node_label_value: "storage"
+minio_node_taint_key: "dedicated"
+minio_node_taint_value: "minio"
+minio_node_taint_effect: "NoSchedule"
+
+# Storage e PersistentVolume
+minio_host_path: "/mnt/minio-data"
+minio_pv_name: "minio-pv"
+minio_storage_class: "manual"

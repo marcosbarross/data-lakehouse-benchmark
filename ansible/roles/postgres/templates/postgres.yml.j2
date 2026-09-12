@@ -42,8 +42,16 @@ spec:
       labels:
         app: postgres-catalog
     spec:
+      nodeSelector:
+        node-role: catalog
+      tolerations:
+        - key: "dedicated"
+          operator: "Equal"
+          value: "catalog"
+          effect: "NoSchedule"
       containers:
         - name: postgres
+
           image: postgres:16-alpine
           ports:
             - containerPort: 5432

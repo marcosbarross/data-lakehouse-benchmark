@@ -3,7 +3,15 @@ trino_image: "trinodb/trino:483"
 trino_node_port: 30080
 hive_metastore_uri: "thrift://hive-metastore.lakehouse.svc.cluster.local:9083"
 
-jvm_max_heap: "1G" 
+trino_worker_replicas: 3
+compute_node_label_key: "node-role"
+compute_node_label_value: "compute"
+
+trino_coordinator_heap: "2G"
+trino_worker_heap: "12G"
+trino_query_max_memory: "20GB"
+trino_query_max_memory_per_node: "8GB"
+
 
 minio_endpoint: "http://minio-service.lakehouse.svc.cluster.local:9000"
 minio_access_key: "admin"

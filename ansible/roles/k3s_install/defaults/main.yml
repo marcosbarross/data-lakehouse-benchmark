@@ -1,5 +1,23 @@
 ---
 k3s_version: "v1.28.5+k3s1"
 
+k3s_user: "{{ ansible_user | default(ansible_facts['env']['SUDO_USER'] | default('ubuntu')) }}"
+k3s_user_home: "{{ '/root' if k3s_user == 'root' else '/home/' ~ k3s_user }}"
+
 extra_server_args: "--node-ip={{ ansible_host }} --flannel-iface=eth1"
 extra_agent_args: "--node-ip={{ ansible_host }} --flannel-iface=eth1"
+
+minio_node_label_key: "node-role"
+minio_node_label_value: "storage"
+minio_node_taint_key: "dedicated"
+minio_node_taint_value: "minio"
+minio_node_taint_effect: "NoSchedule"
+
+compute_node_label_key: "node-role"
+compute_node_label_value: "compute"
+
+catalog_node_label_key: "node-role"
+catalog_node_label_value: "catalog"
+catalog_node_taint_key: "dedicated"
+catalog_node_taint_value: "catalog"
+catalog_node_taint_effect: "NoSchedule"
