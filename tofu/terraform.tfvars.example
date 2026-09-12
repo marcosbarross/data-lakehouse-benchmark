@@ -1,0 +1,27 @@
+# Chave de API da Magalu Cloud (obtenha no painel ou via CLI mgc)
+mgc_api_key = "SUA_API_KEY_MAGALU_CLOUD_AQUI"
+
+# Região (br-se1 para Região Sudeste, br-ne1 para Nordeste)
+region = "br-se1"
+
+# Prefixo para os recursos
+cluster_prefix = "lakehouse"
+
+# Caminhos das chaves SSH
+ssh_public_key_path  = "~/.ssh/xerlock.pub"
+ssh_private_key_path = "~/.ssh/xerlock"
+ssh_user             = "ubuntu"
+
+# Sabores/Flavors das máquinas virtuais
+master_machine_type  = "BV2-2-40"   # 2 vCPUs, 2 GB RAM (Master / Coordinator)
+worker1_machine_type = "BV2-8-40"   # 2 vCPUs, 8 GB RAM (MinIO Storage Dedicado)
+worker2_machine_type = "BV2-4-40"   # 2 vCPUs, 4 GB RAM (Trino Worker)
+
+# Imagem do SO
+image_name = "cloud-ubuntu-24.04 LTS"
+
+# Restrição de IP para SSH/API (opcional, padrão aberto para benchmarks de curta duração)
+allowed_admin_cidr = "0.0.0.0/0"
+
+# Alocar IP público para as instâncias virtuais (necessário para SSH e acesso web direto)
+allocate_public_ipv4 = true
