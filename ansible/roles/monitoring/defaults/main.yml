@@ -1,0 +1,50 @@
+---
+# Namespace onde a stack de monitoramento será instalada
+monitoring_namespace: "monitoring"
+
+# Versão do chart kube-prometheus-stack (deixe vazio para a mais recente)
+kube_prometheus_stack_chart_version: ""
+
+# Credenciais e portas de acesso do Grafana
+grafana_admin_user: "admin"
+grafana_admin_password: "password123"
+grafana_nodeport: 30300
+grafana_service_type: "NodePort"
+
+# Configurações do Prometheus
+prometheus_nodeport_enabled: true
+prometheus_nodeport: 30090
+prometheus_service_type: "NodePort"
+prometheus_scrape_interval: "15s"
+prometheus_evaluation_interval: "15s"
+prometheus_retention: "48h"
+prometheus_retention_size: "10GiB"
+
+
+# Alertmanager (desabilitado por padrão para economizar recursos nas VMs de benchmark)
+alertmanager_enabled: false
+
+# Limites de recursos para não competir com Trino/MinIO
+prometheus_resources:
+  requests:
+    cpu: "200m"
+    memory: "512Mi"
+  limits:
+    cpu: "1000m"
+    memory: "2Gi"
+
+grafana_resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+
+node_exporter_resources:
+  requests:
+    cpu: "50m"
+    memory: "64Mi"
+  limits:
+    cpu: "200m"
+    memory: "128Mi"

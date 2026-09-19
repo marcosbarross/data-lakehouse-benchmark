@@ -1,0 +1,86 @@
+---
+# ==============================================================================
+# Role de Instalação do Prometheus e Grafana via Helm no K3s
+# ==============================================================================
+
+- name: Verificar se o binário Helm está instalado no Master
+  shell: command -v helm
+  register: helm_check
+  failed_when: false
+  changed_when: false
+  when: "'master' in group_names"
+
+- name: Instalar o Helm 3 no Master se ausente
+  shell: curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+  environment:
+    USE_SUDO: "false"
+  when:
+    - "'master' in group_names"
+    - helm_check.rc != 0
+
+- name: Adicionar repositório Helm da comunidade Prometheus
+  shell: helm repo add prometheus-community https://prometheus-community.github.io/helm-charts --force-update
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: helm_repo_add
+  changed_when: "'has been added' in helm_repo_add.stdout or 'already exists' not in helm_repo_add.stdout"
+  when: "'master' in group_names"
+
+- name: Atualizar repositórios Helm
+  shell: helm repo update
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  when: "'master' in group_names"
+
+- name: Garantir que o namespace '{{ monitoring_namespace }}' existe
+  shell: kubectl create namespace {{ monitoring_namespace }} --dry-run=client -o yaml | kubectl apply -f -
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: create_ns
+  changed_when: "'created' in create_ns.stdout"
+  when: "'master' in group_names"
+
+- name: Renderizar arquivo de valores customizados para o Helm
+  template:
+    src: values.yaml.j2
+    dest: /tmp/prometheus-values.yaml
+    mode: '0644'
+  when: "'master' in group_names"
+
+- name: Instalar ou atualizar kube-prometheus-stack via Helm
+  shell: >
+    helm upgrade --install prometheus prometheus-community/kube-prometheus-stack
+    --namespace {{ monitoring_namespace }}
+    {% if kube_prometheus_stack_chart_version | default('') | length > 0 %}--version {{ kube_prometheus_stack_chart_version }}{% endif %}
+    -f /tmp/prometheus-values.yaml
+    --timeout 10m
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  when: "'master' in group_names"
+
+- name: Aguardar o deployment do Grafana estar pronto
+  shell: kubectl rollout status deployment/prometheus-grafana -n {{ monitoring_namespace }} --timeout=300s
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  when: "'master' in group_names"
+
+- name: Aguardar o DaemonSet do Node Exporter estar pronto
+  shell: kubectl rollout status daemonset/prometheus-prometheus-node-exporter -n {{ monitoring_namespace }} --timeout=300s
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  when: "'master' in group_names"
+
+- name: Exibir dados de acesso ao Grafana e Prometheus
+  debug:
+    msg:
+      - "=========================================================================="
+      - " STACK DE MONITORAMENTO INSTALADA COM SUCESSO NO CLUSTER K3S!"
+      - "=========================================================================="
+      - " Grafana URL        : http://{{ ansible_host }}:{{ grafana_nodeport }}"
+      - " Grafana Usuário    : {{ grafana_admin_user }}"
+      - " Grafana Senha      : {{ grafana_admin_password }}"
+      - " Prometheus URL     : http://{{ ansible_host }}:{{ prometheus_nodeport }}"
+      - " Namespace          : {{ monitoring_namespace }}"
+      - " Node Exporter      : Ativo em todos os nós (incluindo MinIO e Catálogo)"
+      - "=========================================================================="
+  when: "'master' in group_names"

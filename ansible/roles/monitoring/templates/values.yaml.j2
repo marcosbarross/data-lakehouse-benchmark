@@ -1,0 +1,98 @@
+---
+# Configurações do kube-prometheus-stack para K3s no cluster Lakehouse
+
+global:
+  scrapeInterval: "{{ prometheus_scrape_interval }}"
+  evaluationInterval: "{{ prometheus_evaluation_interval }}"
+
+# Componentes de controle embutidos no K3s (desabilitar scraping direto pois não expõem métricas padrão k8s)
+kubeControllerManager:
+  enabled: false
+
+kubeScheduler:
+  enabled: false
+
+kubeProxy:
+  enabled: false
+
+kubeEtcd:
+  enabled: false
+
+# Alertmanager
+alertmanager:
+  enabled: {{ alertmanager_enabled | lower }}
+
+# Prometheus Node Exporter (DaemonSet para métricas de CPU, RAM, Disco e Rede dos nós)
+nodeExporter:
+  enabled: true
+  operatingSystems:
+    linux:
+      enabled: true
+  # TOLERATIONS: Permite que o Node Exporter monitore TODOS os nós do cluster,
+  # incluindo nós com taints dedicados (MinIO no worker1 e Catálogos no worker5).
+  tolerations:
+    - operator: "Exists"
+  resources:
+    requests:
+      cpu: "{{ node_exporter_resources.requests.cpu }}"
+      memory: "{{ node_exporter_resources.requests.memory }}"
+    limits:
+      cpu: "{{ node_exporter_resources.limits.cpu }}"
+      memory: "{{ node_exporter_resources.limits.memory }}"
+
+# Kube State Metrics (Métricas de deployments, pods, réplicas do K8s)
+kubeStateMetrics:
+  enabled: true
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "64Mi"
+    limits:
+      cpu: "200m"
+      memory: "256Mi"
+
+# Prometheus Server
+prometheus:
+  enabled: true
+  service:
+    type: "{{ prometheus_service_type }}"
+{% if prometheus_service_type == "NodePort" and prometheus_nodeport_enabled %}
+    nodePort: {{ prometheus_nodeport }}
+{% endif %}
+  prometheusSpec:
+    retention: "{{ prometheus_retention }}"
+    retentionSize: "{{ prometheus_retention_size }}"
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    resources:
+      requests:
+        cpu: "{{ prometheus_resources.requests.cpu }}"
+        memory: "{{ prometheus_resources.requests.memory }}"
+      limits:
+        cpu: "{{ prometheus_resources.limits.cpu }}"
+        memory: "{{ prometheus_resources.limits.memory }}"
+
+# Grafana
+grafana:
+  enabled: true
+  adminUser: "{{ grafana_admin_user }}"
+  adminPassword: "{{ grafana_admin_password }}"
+  service:
+    type: "{{ grafana_service_type }}"
+{% if grafana_service_type == "NodePort" %}
+    nodePort: {{ grafana_nodeport }}
+{% endif %}
+  resources:
+    requests:
+      cpu: "{{ grafana_resources.requests.cpu }}"
+      memory: "{{ grafana_resources.requests.memory }}"
+    limits:
+      cpu: "{{ grafana_resources.limits.cpu }}"
+      memory: "{{ grafana_resources.limits.memory }}"
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+    datasources:
+      enabled: true
+      defaultDatasourceEnabled: true
