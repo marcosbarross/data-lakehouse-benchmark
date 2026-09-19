@@ -76,8 +76,19 @@ def generate_consolidated_report(
     all_runs: list[dict[str, Any]],
     output_dir: Path,
     report_path: Path,
+    suite_filter: str | None = None,
 ) -> Path:
-    """Gera as 4 figuras consolidadas e renderiza o relatório Markdown mestre."""
+    """Gera as 4 figuras consolidadas e renderiza o relatório Markdown mestre.
+
+    Args:
+        all_runs: Lista completa de execuções.
+        output_dir: Diretório de saída para gráficos e relatório.
+        report_path: Caminho do arquivo Markdown gerado.
+        suite_filter: Filtro opcional de suite:
+            - None: utiliza todos os runs (comportamento anterior).
+            - "baseline": utiliza apenas runs que NÃO sejam phase2_optimization.
+            - "phase2": utiliza apenas runs com suite == "phase2_optimization".
+    """
     output_dir.mkdir(parents=True, exist_ok=True)
     report_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -86,19 +97,33 @@ def generate_consolidated_report(
         print("[AVISO] Nenhum registro de execução bem-sucedido para geração de relatórios.")
         return report_path
 
+    # Aplica filtro de suite antes de passar para as funções internas
+    if suite_filter == "baseline":
+        filtered_runs = [r for r in valid_runs if r.get("suite") != "phase2_optimization"]
+        if not filtered_runs:
+            print("[AVISO] Nenhum run de baseline encontrado para geração de gráficos.")
+            return report_path
+    elif suite_filter == "phase2":
+        filtered_runs = [r for r in valid_runs if r.get("suite") == "phase2_optimization"]
+        if not filtered_runs:
+            print("[AVISO] Nenhum run de phase2 encontrado para geração de gráficos.")
+            return report_path
+    else:
+        filtered_runs = valid_runs
+
     # Gera as 4 figuras consolidadas
     try:
-        _plot_executive_overview(valid_runs, output_dir)
-        _plot_query_divergence(valid_runs, output_dir)
-        _plot_distribution_and_scatter(valid_runs, output_dir)
-        _plot_infrastructure_and_stability(valid_runs, output_dir)
+        _plot_executive_overview(filtered_runs, output_dir)
+        _plot_query_divergence(filtered_runs, output_dir)
+        _plot_distribution_and_scatter(filtered_runs, output_dir)
+        _plot_infrastructure_and_stability(filtered_runs, output_dir)
     except Exception as exc:
         print(f"[AVISO] Falha na renderização de gráficos: {exc}")
         import traceback
         traceback.print_exc()
 
     # Renderiza o documento Markdown consolidado
-    _render_master_markdown(valid_runs, output_dir, report_path)
+    _render_master_markdown(filtered_runs, output_dir, report_path)
     return report_path
 
 
@@ -107,7 +132,7 @@ def generate_consolidated_report(
 # ==============================================================================
 def _plot_executive_overview(runs: list[dict[str, Any]], output_dir: Path) -> None:
     """Unifica Tempo Total Acumulado, Média Geométrica, Speedup % e Escalabilidade."""
-    baseline_runs = [r for r in runs if r.get("suite") != "phase2_optimization"]
+    baseline_runs = runs  # filtro de suite já aplicado pelo chamador
     groups = sorted(list({(r.get("benchmark", "tpch"), r.get("scale_factor", "sf1")) for r in baseline_runs}))
     if not groups:
         groups = sorted(list({(r.get("benchmark", "tpch"), r.get("scale_factor", "sf1")) for r in runs}))
@@ -264,7 +289,7 @@ def _plot_query_divergence(runs: list[dict[str, Any]], output_dir: Path) -> None
     - Coluna Esquerda: TPC-H SF1 e SF10 (22 queries cada)
     - Coluna Direita: TPC-DS SF1 e SF10 (103 queries cada, altura proporcional e ordenada)
     """
-    baseline_runs = [r for r in runs if r.get("suite") != "phase2_optimization"]
+    baseline_runs = runs  # filtro de suite já aplicado pelo chamador
     benchmarks = ["tpch", "tpcds"]
 
     # Coleta os dados ordenados por magnitude da diferença
@@ -363,7 +388,7 @@ def _plot_query_divergence(runs: list[dict[str, Any]], output_dir: Path) -> None
 # ==============================================================================
 def _plot_distribution_and_scatter(runs: list[dict[str, Any]], output_dir: Path) -> None:
     """Boxplots com escala log no eixo Y + Scatter Plot Delta vs Iceberg recolorido por vencedor."""
-    baseline_runs = [r for r in runs if r.get("suite") != "phase2_optimization"]
+    baseline_runs = runs  # filtro de suite já aplicado pelo chamador
 
     fig, (ax_box, ax_scat) = plt.subplots(1, 2, figsize=(18, 7.5))
 
@@ -605,7 +630,7 @@ def _plot_infrastructure_and_stability(runs: list[dict[str, Any]], output_dir: P
     # Calcula CV = (std / mean) * 100 para cada query e catálogo nas 3 iterações
     # Identifica as queries com maior instabilidade (maior CV)
     cv_records: list[dict[str, Any]] = []
-    baseline_runs = [r for r in runs if r.get("suite") != "phase2_optimization"]
+    baseline_runs = runs  # filtro de suite já aplicado pelo chamador
     all_queries = sorted(list({r["query"] for r in baseline_runs}), key=natural_sort_key)
 
     for q in all_queries:
@@ -670,7 +695,7 @@ def _render_master_markdown(runs: list[dict[str, Any]], plots_dir: Path, report_
     scale_factors = sorted(list({r.get("scale_factor", "sf1") for r in runs}))
     benchmarks = sorted(list({r.get("benchmark", "tpch") for r in runs}))
 
-    baseline_runs = [r for r in runs if r.get("suite") != "phase2_optimization"]
+    baseline_runs = runs  # filtro de suite já aplicado pelo chamador
     total_iceberg = sum(r["elapsed_seconds"] for r in baseline_runs if r["catalog"] == "iceberg")
     total_delta = sum(r["elapsed_seconds"] for r in baseline_runs if r["catalog"] == "delta_lake")
     overall_speedup = (total_iceberg / total_delta) if total_delta > 0 else 1.0

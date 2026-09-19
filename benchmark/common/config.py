@@ -45,7 +45,12 @@ class TrinoSettings:
         b_type = (benchmark_type or os.getenv("BENCHMARK_TYPE", "tpch")).lower()
         default_source_cat = "tpcds" if b_type == "tpcds" else "tpch"
         source_cat = os.getenv("BENCHMARK_SOURCE_CATALOG", default_source_cat)
-        source_sch = os.getenv("BENCHMARK_SOURCE_SCHEMA", sf)
+        # Se scale_factor foi passado explicitamente, source_schema deve seguí-lo.
+        # BENCHMARK_SOURCE_SCHEMA do .env só é usado quando scale_factor não é fornecido.
+        if scale_factor is not None:
+            source_sch = sf
+        else:
+            source_sch = os.getenv("BENCHMARK_SOURCE_SCHEMA", sf)
 
         return cls(
             host=os.getenv("TRINO_HOST", "192.168.56.80"),

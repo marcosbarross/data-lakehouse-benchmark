@@ -139,7 +139,7 @@ def run_phase1(
     # Gerar gráficos e relatório
     has_results = any(bool(results[cat]) for cat in CATALOGS)
     if has_results:
-        generate_plots(results, plots_dir)
+        generate_plots(results, plots_dir, scale_factor=settings.scale_factor)
         generate_markdown_report(results, plots_dir, settings, report_path=report_file, schema=schema)
         print(f"\n[OK] Fase 1 concluída com sucesso!")
         print(f"[OK] Gráficos salvos em: {plots_dir}/")

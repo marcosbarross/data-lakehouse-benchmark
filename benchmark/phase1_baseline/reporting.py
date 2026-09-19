@@ -13,7 +13,7 @@ from benchmark.phase1_baseline.queries import TPCH_QUERIES
 CATALOGS = ["iceberg", "delta_lake"]
 
 
-def generate_plots(results: dict[str, Any], output_dir: Path) -> Path:
+def generate_plots(results: dict[str, Any], output_dir: Path, scale_factor: str = "sf1") -> Path:
     """Gera gráficos comparativos em alta resolução."""
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -40,7 +40,7 @@ def generate_plots(results: dict[str, Any], output_dir: Path) -> Path:
 
     ax.set_xlabel("Queries TPC-H", fontsize=12)
     ax.set_ylabel("Tempo Médio de Execução (segundos)", fontsize=12)
-    ax.set_title("Comparação de Performance: Iceberg vs Delta Lake (TPC-H SF1)", fontsize=14)
+    ax.set_title(f"Comparação de Performance: Iceberg vs Delta Lake (TPC-H {scale_factor.upper()})", fontsize=14)
     ax.set_xticks(list(x))
     ax.set_xticklabels(common_queries, rotation=45)
     ax.legend(fontsize=11)
@@ -140,7 +140,7 @@ def generate_markdown_report(
     report.append("  - `lakehouse-k3s-worker2` (BV4-16-100: 4 vCPUs, 16 GB RAM) — Trino Compute Worker 1 (12 GB JVM Heap)")
     report.append("  - `lakehouse-k3s-worker3` (BV4-16-100: 4 vCPUs, 16 GB RAM) — Trino Compute Worker 2 (12 GB JVM Heap)")
     report.append("  - `lakehouse-k3s-worker4` (BV4-16-100: 4 vCPUs, 16 GB RAM) — Trino Compute Worker 3 (12 GB JVM Heap)")
-    report.append("- **Dataset:** TPC-H SF1 (~1GB gerado sinteticamente)")
+    report.append(f"- **Dataset:** TPC-H {settings.scale_factor.upper()} (gerado sinteticamente pelo conector tpch do Trino)")
 
 
     if not common_queries:
@@ -218,7 +218,7 @@ def generate_markdown_report(
                   f"geral, sendo {diff_pct:.1f}% mais rápido que o concorrente no tempo acumulado.")
     report.append("\nObservações:")
     report.append("- As tabelas foram criadas em ambos os catálogos a partir do dataset "
-                  f"sintético {settings.source_catalog}.{settings.source_schema} (~1GB).")
+                  f"sintético {settings.source_catalog}.{settings.source_schema}.")
     report.append("- O staging e a execução foram orquestrados de forma automatizada em Python.")
     report.append("- Os dados residem no MinIO em formato Parquet, gerenciados pelos "
                   "respectivos metadados de cada engine lakehouse.")
