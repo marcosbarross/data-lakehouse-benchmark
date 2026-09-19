@@ -70,6 +70,28 @@ resource "mgc_network_security_groups_rules" "allow_postgres" {
   remote_ip_prefix  = var.allowed_admin_cidr
 }
 
+resource "mgc_network_security_groups_rules" "allow_grafana" {
+  security_group_id = mgc_network_security_groups.cluster_sg.id
+  description       = "Permitir Grafana NodePort"
+  direction         = "ingress"
+  ethertype         = "IPv4"
+  protocol          = "tcp"
+  port_range_min    = 30300
+  port_range_max    = 30300
+  remote_ip_prefix  = var.allowed_admin_cidr
+}
+
+resource "mgc_network_security_groups_rules" "allow_prometheus" {
+  security_group_id = mgc_network_security_groups.cluster_sg.id
+  description       = "Permitir Prometheus NodePort"
+  direction         = "ingress"
+  ethertype         = "IPv4"
+  protocol          = "tcp"
+  port_range_min    = 30090
+  port_range_max    = 30090
+  remote_ip_prefix  = var.allowed_admin_cidr
+}
+
 # --- Comunicacao Interna do Cluster K3s (Flannel, Kubelet, Pods) ---
 resource "mgc_network_security_groups_rules" "allow_cluster_internal_tcp" {
   security_group_id = mgc_network_security_groups.cluster_sg.id
@@ -91,6 +113,28 @@ resource "mgc_network_security_groups_rules" "allow_cluster_internal_udp" {
   port_range_min    = 1
   port_range_max    = 65535
   remote_ip_prefix  = "10.0.0.0/8"
+}
+
+resource "mgc_network_security_groups_rules" "allow_cluster_internal_172_tcp" {
+  security_group_id = mgc_network_security_groups.cluster_sg.id
+  description       = "Permitir trafego TCP interno entre nós do cluster (faixa 172.16.0.0/12)"
+  direction         = "ingress"
+  ethertype         = "IPv4"
+  protocol          = "tcp"
+  port_range_min    = 1
+  port_range_max    = 65535
+  remote_ip_prefix  = "172.16.0.0/12"
+}
+
+resource "mgc_network_security_groups_rules" "allow_cluster_internal_172_udp" {
+  security_group_id = mgc_network_security_groups.cluster_sg.id
+  description       = "Permitir trafego UDP interno entre nós do cluster (faixa 172.16.0.0/12)"
+  direction         = "ingress"
+  ethertype         = "IPv4"
+  protocol          = "udp"
+  port_range_min    = 1
+  port_range_max    = 65535
+  remote_ip_prefix  = "172.16.0.0/12"
 }
 
 resource "mgc_network_security_groups_rules" "allow_cluster_internal_flannel_fallback" {
