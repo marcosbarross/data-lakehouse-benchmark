@@ -291,9 +291,20 @@ def main() -> int:
         args.output_dir.mkdir(parents=True, exist_ok=True)
         write_csv(args.output_dir / "runs_all.csv", all_runs)
         write_json(args.output_dir / "runs_all.json", all_runs)
-        generate_consolidated_report(all_runs, args.output_dir, args.report_path)
-        print(f"\n[SUCESSO] Relatório mestre gerado em: {args.report_path}")
-        print(f"[SUCESSO] Gráficos consolidados salvos em: {args.output_dir}/")
+
+        # Gráficos separados: 4 apenas Baseline e 4 apenas Phase2
+        baseline_out = args.output_dir / "baseline"
+        phase2_out = args.output_dir / "phase2"
+        baseline_report = baseline_out / "benchmark_report_baseline.md"
+        phase2_report = phase2_out / "benchmark_report_phase2.md"
+
+        generate_consolidated_report(all_runs, baseline_out, baseline_report, suite_filter="baseline")
+        generate_consolidated_report(all_runs, phase2_out, phase2_report, suite_filter="phase2")
+
+        print(f"\n[SUCESSO] Relatório baseline gerado em: {baseline_report}")
+        print(f"[SUCESSO] Gráficos baseline salvos em:  {baseline_out}/")
+        print(f"[SUCESSO] Relatório phase2 gerado em:   {phase2_report}")
+        print(f"[SUCESSO] Gráficos phase2 salvos em:    {phase2_out}/")
         print("=" * 76 + "\n")
         return 0
 
@@ -318,7 +329,21 @@ def main() -> int:
         write_csv(args.output_dir / "runs_all.csv", all_runs)
         write_json(args.output_dir / "runs_all.json", all_runs)
 
-        generate_consolidated_report(all_runs, args.output_dir, args.report_path)
+        # Gráficos separados: 4 apenas Baseline e 4 apenas Phase2
+        baseline_out = args.output_dir / "baseline"
+        phase2_out = args.output_dir / "phase2"
+        generate_consolidated_report(
+            all_runs,
+            baseline_out,
+            baseline_out / "benchmark_report_baseline.md",
+            suite_filter="baseline",
+        )
+        generate_consolidated_report(
+            all_runs,
+            phase2_out,
+            phase2_out / "benchmark_report_phase2.md",
+            suite_filter="phase2",
+        )
 
     # Resumo final consolidado
     print("\n" + "=" * 76)
@@ -333,17 +358,17 @@ def main() -> int:
 
     if all_success:
         print("\n Artefatos gerados:")
-        print(f"   * Relatório Mestre Consolidado : {args.report_path}")
-        print(f"   * Figuras Científicas (4 unif) : {args.output_dir}/")
-        print(f"   * Dados Brutos Consolidados    : {args.output_dir / 'runs_all.json'}")
+        print(f"   * Figuras Baseline (4 gráficos) : {args.output_dir / 'baseline'}/")
+        print(f"   * Figuras Phase2   (4 gráficos) : {args.output_dir / 'phase2'}/")
+        print(f"   * Dados Brutos Consolidados     : {args.output_dir / 'runs_all.json'}")
         if any("TPC-H Fase 1" in k for k in all_exit_codes):
-            print(f"   * Gráficos Baseline TPC-H      : {args.output_dir_phase1}/")
+            print(f"   * Gráficos Baseline TPC-H       : {args.output_dir_phase1}/")
         if any("TPC-H Fase 2" in k for k in all_exit_codes):
-            print(f"   * Sumário Otimizações TPC-H    : {args.output_dir_phase2 / 'summary.md'}")
-            print(f"   * Planos EXPLAIN ANALYZE       : {args.output_dir_phase2 / 'plans'}/")
+            print(f"   * Sumário Otimizações TPC-H     : {args.output_dir_phase2 / 'summary.md'}")
+            print(f"   * Planos EXPLAIN ANALYZE        : {args.output_dir_phase2 / 'plans'}/")
         if any("TPC-DS" in k for k in all_exit_codes):
-            print(f"   * Relatórios Individuais TPC-DS: {args.report_path_tpcds}")
-            print(f"   * Gráficos Individuais TPC-DS  : {args.output_dir_tpcds}/")
+            print(f"   * Relatórios Individuais TPC-DS : {args.report_path_tpcds}")
+            print(f"   * Gráficos Individuais TPC-DS   : {args.output_dir_tpcds}/")
         print("=" * 76 + "\n")
         return 0
     else:
